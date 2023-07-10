@@ -1,0 +1,38 @@
+# setup from cli.*.properties
+set remoteDeploymentName=${remoteDeploymentName}
+set remoteServerHost=${remoteServerHost}
+set remoteServerPort=${remoteServerPort}
+set serverConfig=${serverConfig}
+set clientMappingsSocketBinding=${clientMappingsSocketBinding}
+
+# running embeded server with server config
+embed-server --server-config=$serverConfig
+
+/system-property=remote.server.host:add(value=$remoteServerHost)
+/system-property=remote.server.port:add(value=$remoteServerPort)
+/system-property=remote.deployment.name:add(value=$remoteDeploymentName)
+/system-property=client.mappings.socket.binding:add(value=$clientMappingsSocketBinding)
+
+echo "System properties defined"
+
+echo "Adding a test queue to the Server"
+
+/subsystem=messaging-activemq/server=default/jms-queue=testQueue:add(entries=[java:/jms/queue/testQueue])
+
+echo "Test queue added"
+
+/socket-binding-group=standard-sockets/remote-destination-outbound-socket-binding=server2:add(host=${remote.server.host}, port=${remote.server.port})
+
+# for transaction manager could be asked for recovery to be started the listener at port has to be enabled (JVM restart needed)
+/subsystem=transactions:write-attribute(name=recovery-listener,value=true)
+echo "Transaction recovery listener enabled"
+# the recovery listener is normally bound at port 4712, you can verify it with:
+# /socket-binding-group=standard-sockets/socket-binding=txn-recovery-environment:read-attribute(name=bound-port)
+# for recovery invocation you can use e.g.: `telnet localhost 4712`; enter 'SCAN' on input
+
+# to get detailed insight on what happening during transaction processing switch on the TRACE logging for Narayana
+# /subsystem=logging/logger=com.arjuna:write-attribute(name=level,value=TRACE)
+
+echo "remote-configuration.cli script finished"
+
+quit

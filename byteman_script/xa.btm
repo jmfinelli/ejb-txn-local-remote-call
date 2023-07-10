@@ -1,0 +1,7 @@
+RULE Fail PGXAConnection.commit
+CLASS PGXAConnection
+METHOD commit
+AT ENTRY
+IF TRUE
+	DO debug("===== Called org.postgresql.xa");debug("===== Returning XA_RETRY");throw new javax.transaction.xa.XAException(4);
+ENDRULE

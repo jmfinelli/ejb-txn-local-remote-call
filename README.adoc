@@ -1,0 +1,165 @@
+= ejb-txn-local-remote-call: Demonstrates how to use sub-transactions with remote EJB calls and transaction propagation
+
+[abstract]
+Using a single  WildFly, the `ejb-txn-local-remote-call` demo demonstrates how to simulate sub-transactions employing remote EJB calls and transaction propagation.
+
+== Origin
+
+This demo is a modified version of https://github.com/wildfly/quickstart/tree/main/ejb-txn-remote-call[ejb-txn-remote-call].
+
+== What is it?
+
+The `ejb-txn-local-remote-call` demo demonstrates the remote transactional EJB calls in a standalone application server of WildFly.
+
+== Description (TODO)
+
+== The Goal
+
+The EJB remote call propagates the transactional context between two beans. In particular, the bean handling the database is activated using an EJB remote call.
+
+== Running in a bare metal environment
+
+=== Setup the WildFly server
+
+The easiest way to set up an instance of WildFly on a local computer is to extract the WildFly zip file to a directory.
+
+[source,sh,subs="+quotes,attributes+"]
+----
+unzip wildfly-\*.Final.zip;
+export JBOSS_HOME=$(pwd)/wildfly-*.Final;
+export PATH_TO_DEMO=$(pwd)/ejb-txn-local-remote-call;
+----
+
+Now, the `server` needs to be configured.
+See the script `${PATH_TO_DEMO}/extensions/remote-configuration.cli`
+to review the commands that will be executed.
+The `cli` script is configured with `cli.local.properties`
+to run in https://wildfly.org/news/2015/03/13/Offline-CLI/[embedded mode] against the `standalone-full.xml`.
+
+[source,sh,subs="+quotes,attributes+"]
+----
+${JBOSS_HOME}/bin/jboss-cli.sh \
+  --file=${PATH_TO_DEMO}/extensions/remote-configuration.cli \
+  --properties=${PATH_TO_DEMO}/extensions/cli.local.properties
+----
+
+NOTE: For Windows, use the `bin\jboss-cli.bat` script.
+
+=== Configure datasources
+
+The EJBs perform transactional work against a database, so the servers need
+to know how to connect to that database. The following steps shows how to configure
+an XA datasource with the name `ejbJtaDs` for connecting to a PostgreSQL database.
+
+For local testing purposes you can use a simple docker container:
+
+[source,sh]
+----
+podman run -p 5432:5432 --rm  -ePOSTGRES_DB=test -ePOSTGRES_USER=test -ePOSTGRES_PASSWORD=test postgres:9.4 -c max-prepared-transactions=110 -c log-statement=all
+----
+
+. Install the JDBC driver as https://docs.wildfly.org/22/Developer_Guide.html#Class_Loading_in_WildFly[a jboss module].
+  Using Maven artifact definition and $WildFly will download the driver during startup. +
+  Run the command on each server.
++
+[source,sh,subs="+quotes,attributes+"]
+----
+${JBOSS_HOME}/bin/jboss-cli.sh "embed-server,\
+  module add --name=org.postgresql.jdbc \
+  --module-xml=${PATH_TO_DEMO}/extensions/postgresql-module.xml"
+----
++
+. Configuration of the JDBC driver
++
+[source,sh,subs="+quotes,attributes+"]
+----
+${JBOSS_HOME}/bin/jboss-cli.sh "embed-server --server-config=standalone-full.xml,\
+ /subsystem=datasources/jdbc-driver=postgresql:add(driver-name=postgresql,driver-module-name=org.postgresql.jdbc,driver-xa-datasource-class-name=org.postgresql.xa.PGXADataSource)"
+----
++
+. Configuration of the xa-datasource for each server
++
+[source,sh]
+----
+${JBOSS_HOME}/bin/jboss-cli.sh "embed-server --server-config=standalone-full.xml,\
+  xa-data-source add --name=ejbJtaDs --driver-name=postgresql --jndi-name=java:jboss/datasources/ejbJtaDs --user-name=test --password=test --xa-datasource-properties=ServerName=localhost,\
+  /subsystem=datasources/xa-data-source=ejbJtaDs/xa-datasource-properties=PortNumber:add(value=5432),\
+  /subsystem=datasources/xa-data-source=ejbJtaDs/xa-datasource-properties=DatabaseName:add(value=test)"
+----
+
+NOTE: For Windows, use the `bin\jboss-cli.bat` script.
+
+=== Configure Byteman
+
+This quickstart uses Byteman to create failures in the 2PC protocol. You can find more information about Byteman https://byteman.jboss.org/[here].
+
+Follow the instructions here to download and configure Byteman.
+
+. Download _Byteman_ from http://www.jboss.org/byteman/downloads/[here].
+. Extract the ZIP file to `$JBOSS_HOME/extensions/byteman` (referred to as `__BYTEMAN_HOME__`)
+. By default, the _Byteman_ download provides unrestricted permissions to `others` which can cause a problem when running Ruby commands for the OpenShift quickstarts. To restrict the permissions to `others`, open a terminal and type the following:
++
+[source,subs="+quotes",options="nowrap"]
+----
+chmod -R o-rwx __BYTEMAN_HOME__/
+----
+
+When instructed to use _Byteman_ to halt the application, perform the following steps:
+
+. Find the appropriate configuration file for your operating system in the list below.
+
+* For Linux: `__EAP_HOME__/bin/standalone.conf`
+* For Windows: `__EAP_HOME__\bin\standalone.conf.bat`
+
+. **Important**: Make a backup copy of this configuration file before making any modifications!
+. Open the configuration file and append the text specified in the quickstart `README` file  instructions to the end of the configuration file. Be sure to replace the `__BYTEMAN_HOME__` with the path to the Byteman download and the `__QUICKSTART_HOME__` with the path to the quickstarts.
++
+[source,subs="+quotes",options="nowrap"]
+----
+JAVA_OPTS="-javaagent:$JBOSS_HOME/extensions/byteman/lib/byteman.jar=script:$PATH_TO_DEMO/byteman_script/xa.btm ${JAVA_OPTS}"
+----
+
+When you have completed testing the quickstart, replace the server configuration file with the backup copy you created above to disable _Byteman_.
+
+=== Start WildFly server
+
+When the setup was done you can start the server.
+Start the `server1` with the `standalone-full.xml` configuration.
+
+[source,sh,subs="+quotes,attributes+",options="nowrap"]
+----
+${JBOSS_HOME}/bin/standalone.sh -c standalone-full.xml -Djboss.tx.node.id=server1 -Djboss.node.name=server1
+----
+
+NOTE: For Windows, use the `bin\standalone.bat` script.
+
+=== Deploying the Quickstart applications
+
+[source,sh,subs="+quotes,attributes+",options="nowrap"]
+----
+cd ${PATH_TO_DEMO}
+mvn clean package
+mvn wildfly:deploy
+----
+
+The last command connect to the running instance of the WildFly
+and deploys the `war` archives to the server.
+
+=== Test the Demo (TODO)
+
+To start the transaction
+----
+curl -s http://localhost:8080/application/direct-stateless
+----
+To read the message (this command should return a non-empty output only when Byteman is disabled)
+----
+curl -s http://localhost:8080/application/messages
+----
+To delete all transactions from WildFly:
+----
+rm -rf ${JBOSS_HOME}/standalone/data/tx-object-store \
+  ${JBOSS_HOME}/standalone/data/ejb-xa-recovery \
+  ${JBOSS_HOME}/standalone/data/activemq
+----
+
+=== Server Log: Expected Warnings and Errors (TODO)
